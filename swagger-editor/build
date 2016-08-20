@@ -1,0 +1,48 @@
+#!/bin/bash
+
+set -eux
+self=$(readlink -f $(dirname "$0"))
+
+source config.sh
+
+# checkout that tag
+cd ${alpine_node_dir}
+git stash save || true; git stash drop || true; git clean -xfd
+git checkout ${alpine_node_tag}
+cd $self
+
+sudo docker build --rm -t ${alpine_node_image} ${alpine_node_dir}
+
+
+cd ${swagger_editor_dir}
+git stash save || true; git stash drop || true; git clean -xfd
+git checkout master
+# apply the privacy patch
+git apply --check ${self}/privacy.patch
+git apply ${self}/privacy.patch
+cp ${self}/defaults.json config/defaults.json
+
+echo '
+###
+# swagger-editor - https://github.com/swagger-api/swagger-editor/
+#
+# Run the swagger-editor service on port 8080
+###
+'"FROM    ${alpine_node_image}"'
+MAINTAINER YetAnotherMinion <yam@thinkalexandria.com>
+
+RUN apk add --no-cache git
+RUN     npm install -g http-server webpack -verbose
+
+WORKDIR /editor
+ADD     ./    /editor
+RUN     npm install
+RUN     webpack --production --hide-modules --progress
+
+# The default port of the application
+EXPOSE  8080
+
+CMD ["http-server", "--cors", "-p8080", "/editor"]' > Dockerfile
+
+sudo docker build --rm -f Dockerfile -t ${swagger_editor_image} ${swagger_editor_dir}
+
